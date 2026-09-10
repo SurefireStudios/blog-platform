@@ -107,7 +107,7 @@ pub async fn upload(
 
     // Save file to disk
     let media_dir = std::path::Path::new("media");
-    std::fs::create_dir_all(media_dir).ok();
+    tokio::fs::create_dir_all(media_dir).await.ok();
 
     let bytes = field
         .bytes()
@@ -120,7 +120,8 @@ pub async fn upload(
     }
 
     let file_path = media_dir.join(&safe_filename);
-    std::fs::write(&file_path, &bytes)
+    tokio::fs::write(&file_path, &bytes)
+        .await
         .map_err(|e| ApiError::new(format!("Failed to save file: {}", e)))?;
 
     let result = sqlx::query_as::<_, MediaRow>(

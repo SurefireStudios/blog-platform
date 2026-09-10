@@ -90,11 +90,18 @@ pub async fn register(
             .await
             .map_err(|e| ApiError::new(format!("Failed to create auth token: {}", e)))?;
 
-            // Auto-add user to first site if exists
-            if let Ok(Some(site_id)) =
-                sqlx::query_scalar::<_, Option<Uuid>>("SELECT id FROM sites LIMIT 1")
-                    .fetch_optional(&state.db)
-                    .await
+            // Bootstrap only: adopt a site that nobody administers yet.
+            //
+            // Registration is unauthenticated, so this must never attach a new
+            // account to a site that already has members - that would hand any
+            // anonymous registrant write access to an existing site.
+            if let Ok(Some(site_id)) = sqlx::query_scalar::<_, Option<Uuid>>(
+                "SELECT s.id FROM sites s
+                 WHERE NOT EXISTS (SELECT 1 FROM site_members m WHERE m.site_id = s.id)
+                 LIMIT 1",
+            )
+            .fetch_optional(&state.db)
+            .await
             {
                 sqlx::query(
                     "INSERT INTO site_members (site_id, user_id, role) VALUES ($1, $2, 'admin') ON CONFLICT DO NOTHING"

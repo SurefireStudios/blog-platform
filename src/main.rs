@@ -115,16 +115,28 @@ async fn main() {
             "/{*path}",
             get(
                 |axum::extract::Path(path): axum::extract::Path<String>| async move {
+                    // The request path is attacker-controlled and axum neither
+                    // normalises `..` nor rejects percent-encoded traversal, so
+                    // every candidate path is resolved against `output/` first.
+                    let not_found = || {
+                        (StatusCode::NOT_FOUND, axum::response::Html("Not found")).into_response()
+                    };
+
                     // Try .html first
-                    let html_path = format!("output/{}.html", path);
-                    if std::path::Path::new(&html_path).exists() {
-                        if let Ok(content) = tokio::fs::read_to_string(&html_path).await {
-                            return axum::response::Html(content).into_response();
+                    if let Some(html_path) =
+                        util::resolve_within("output", &format!("{}.html", path))
+                    {
+                        if html_path.exists() {
+                            if let Ok(content) = tokio::fs::read_to_string(&html_path).await {
+                                return axum::response::Html(content).into_response();
+                            }
                         }
                     }
                     // Try exact file match (for sitemap.xml, feed.xml, etc)
-                    let file_path = format!("output/{}", path);
-                    if std::path::Path::new(&file_path).exists() {
+                    let Some(file_path) = util::resolve_within("output", &path) else {
+                        return not_found();
+                    };
+                    if file_path.exists() {
                         if let Ok(content) = tokio::fs::read_to_string(&file_path).await {
                             // Determine content type based on extension
                             let content_type = if path.ends_with(".xml") {
